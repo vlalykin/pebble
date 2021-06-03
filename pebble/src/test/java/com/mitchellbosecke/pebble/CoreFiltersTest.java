@@ -23,19 +23,8 @@ import java.io.Writer;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.time.*;
+import java.util.*;
 
 import static java.lang.Boolean.TRUE;
 import static java.util.Collections.emptyList;
@@ -230,6 +219,126 @@ class CoreFiltersTest {
     Writer writer = new StringWriter();
     template.evaluate(writer, context);
     assertEquals("02/07/2018", writer.toString());
+  }
+
+  @Test
+  void testDateWithDateAndExplicitTimeZone() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ date | date(timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("date", Date.from(Instant.ofEpochSecond(1595853935)));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T18:45:35+0600", writer.toString());
+  }
+
+  @Test
+  void testDateWithDateAndFormatAndExplicitTimeZone() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ date | date(\"yyyy-MM-dd'T'HH:mm:ssX\", timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("date", Date.from(Instant.ofEpochSecond(1595853935)));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T18:45:35+06", writer.toString());
+  }
+
+  @Test
+  void testDateWithTimestampAndExplicitTimeZone() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ timestamp | date(timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("timestamp", 1595853935000L);
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T18:45:35+0600", writer.toString());
+  }
+
+  @Test
+  void testDateWithOffsetDateTimeAndExplicitTimeZoneUsesTimeZoneOfInput() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ offsetDateTime | date(timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("offsetDateTime", OffsetDateTime.of(2020, 7, 27, 16, 12, 13, 0, ZoneOffset.ofHours(3)));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T16:12:13+03:00", writer.toString());
+  }
+
+  @Test
+  void testDateWithOffsetDateTimeAndFormatAndExplicitTimeZoneUsesTimeZoneOfInput() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ offsetDateTime | date(\"yyyy-MM-dd'T'HH:mm:ssX\", timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("offsetDateTime", OffsetDateTime.of(2020, 7, 27, 16, 12, 13, 0, ZoneOffset.ofHours(3)));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T16:12:13+03", writer.toString());
+  }
+
+  @Test
+  void testDateWithOffsetDateTimeAndFormatAndNoExplicitTimeZoneUsesTimeZoneOfInput() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ offsetDateTime | date(\"yyyy-MM-dd'T'HH:mm:ssX\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("offsetDateTime", OffsetDateTime.of(2020, 7, 27, 16, 12, 13, 0, ZoneOffset.ofHours(5)));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T16:12:13+05", writer.toString());
+  }
+
+  @Test
+  void testDateWithInstantAndExplicitTimeZone() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    PebbleTemplate template = pebble.getLiteralTemplate("{{ instant | date(timeZone=\"Asia/Almaty\") }}");
+    Map<String, Object> context = new HashMap<>();
+    context.put("instant", Instant.ofEpochSecond(1595853935));
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+
+    assertEquals("2020-07-27T18:45:35+06:00[Asia/Almaty]", writer.toString());
+  }
+
+  @Test
+  void testDateWithInstantAndNoExplicitTimeZoneUsesSystemTimeZone() throws IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().build();
+
+    TimeZone defaultTimeZone = TimeZone.getDefault();
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Funafuti"));
+
+      PebbleTemplate template = pebble.getLiteralTemplate("{{ instant | date() }}");
+      Map<String, Object> context = new HashMap<>();
+      context.put("instant", Instant.ofEpochSecond(1595853935));
+
+      Writer writer = new StringWriter();
+      template.evaluate(writer, context);
+
+      assertEquals("2020-07-28T00:45:35+12:00[Pacific/Funafuti]", writer.toString());
+    }
+    finally {
+      TimeZone.setDefault(defaultTimeZone);
+    }
   }
 
   @Test
@@ -1218,6 +1327,105 @@ class CoreFiltersTest {
     Writer writer = new StringWriter();
     template.evaluate(writer, context);
     assertEquals("I like foo and bar.", writer.toString());
+  }
+
+  /**
+   * Tests {@link com.mitchellbosecke.pebble.extension.core.Base64EncoderFilter} if the base64 encoding filter is working for a string value, a string constant, null.
+   */
+  @Test
+  void testBase64EncoderFilterInTemplate() throws PebbleException, IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+            .strictVariables(false).build();
+
+    PebbleTemplate template = pebble.getTemplate("var=\"{{ var | base64encode }}\" const=\"{{ \"test\" | base64encode }}\" null=\"{{ null | base64encode }}\"");
+
+    Map<String, Object> context = new HashMap<>();
+    context.put("var", "test");
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+    assertEquals("var=\"dGVzdA==\" const=\"dGVzdA==\" null=\"\"", writer.toString());
+  }
+
+  /**
+   * Tests {@link com.mitchellbosecke.pebble.extension.core.Base64DecoderFilter} if the base64 decoder filter is working for a string value, a string constant, null.
+   */
+  @Test
+  void testBase64DecoderFilterInTemplate() throws PebbleException, IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+            .strictVariables(false).build();
+
+    PebbleTemplate template = pebble.getTemplate("var=\"{{ var | base64decode }}\" const=\"{{ \"dGVzdA==\" | base64decode }}\" null=\"{{ null | base64decode }}\"");
+
+    Map<String, Object> context = new HashMap<>();
+    context.put("var", "dGVzdA==");
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+    assertEquals("var=\"test\" const=\"test\" null=\"\"", writer.toString());
+  }
+
+  @Test
+  void testBase64DecodeFilterBadEncodedStringFail() throws PebbleException, IOException {
+    assertThrows(PebbleException.class, () -> {
+      PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+              .strictVariables(false).build();
+
+      PebbleTemplate template = pebble.getTemplate("{{ \"this is not a base64 encoded string\" | base64decode }}");
+
+      Map<String, Object> context = new HashMap<>();
+
+      Writer writer = new StringWriter();
+      template.evaluate(writer, context);
+    });
+  }
+
+  @Test
+  void testBase64DecodeFilterNoStringFail() throws PebbleException, IOException {
+    assertThrows(PebbleException.class, () -> {
+      PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+              .strictVariables(false).build();
+
+      PebbleTemplate template = pebble.getTemplate("{{ {'foo':1} | base64decode }}");
+
+      Map<String, Object> context = new HashMap<>();
+
+      Writer writer = new StringWriter();
+      template.evaluate(writer, context);
+    });
+  }
+
+  @Test
+  void testSha256FilterNoStringFail() throws PebbleException, IOException {
+    assertThrows(PebbleException.class, () -> {
+      PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+              .strictVariables(false).build();
+
+      PebbleTemplate template = pebble.getTemplate("{{ {'foo':1} | sha256 }}");
+
+      Map<String, Object> context = new HashMap<>();
+
+      Writer writer = new StringWriter();
+      template.evaluate(writer, context);
+    });
+  }
+
+  /**
+   * Tests {@link com.mitchellbosecke.pebble.extension.core.Sha256Filter} if the SHA256 hashing filter is working for a string value, a string constant, null.
+   */
+  @Test
+  void testSha256FilterInTemplate() throws PebbleException, IOException {
+    PebbleEngine pebble = new PebbleEngine.Builder().loader(new StringLoader())
+            .strictVariables(false).build();
+
+    PebbleTemplate template = pebble.getTemplate("var=\"{{ var | sha256 }}\" const=\"{{ \"test\" | sha256}}\" null=\"{{ null | sha256 }}\"");
+
+    Map<String, Object> context = new HashMap<>();
+    context.put("var", "test");
+
+    Writer writer = new StringWriter();
+    template.evaluate(writer, context);
+    assertEquals("var=\"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\" const=\"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\" null=\"\"", writer.toString());
   }
 
   @Test

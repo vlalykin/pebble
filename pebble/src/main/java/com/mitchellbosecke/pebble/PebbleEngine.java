@@ -9,6 +9,8 @@
 package com.mitchellbosecke.pebble;
 
 
+import com.mitchellbosecke.pebble.attributes.methodaccess.BlacklistMethodAccessValidator;
+import com.mitchellbosecke.pebble.attributes.methodaccess.MethodAccessValidator;
 import com.mitchellbosecke.pebble.cache.CacheKey;
 import com.mitchellbosecke.pebble.cache.PebbleCache;
 import com.mitchellbosecke.pebble.cache.tag.ConcurrentMapTagCache;
@@ -16,14 +18,8 @@ import com.mitchellbosecke.pebble.cache.tag.NoOpTagCache;
 import com.mitchellbosecke.pebble.cache.template.ConcurrentMapTemplateCache;
 import com.mitchellbosecke.pebble.cache.template.NoOpTemplateCache;
 import com.mitchellbosecke.pebble.error.LoaderException;
-import com.mitchellbosecke.pebble.extension.Extension;
-import com.mitchellbosecke.pebble.extension.ExtensionRegistry;
-import com.mitchellbosecke.pebble.extension.NodeVisitorFactory;
-import com.mitchellbosecke.pebble.extension.core.AttributeResolverExtension;
-import com.mitchellbosecke.pebble.extension.core.CoreExtension;
-import com.mitchellbosecke.pebble.extension.escaper.EscaperExtension;
+import com.mitchellbosecke.pebble.extension.*;
 import com.mitchellbosecke.pebble.extension.escaper.EscapingStrategy;
-import com.mitchellbosecke.pebble.extension.i18n.I18nExtension;
 import com.mitchellbosecke.pebble.lexer.LexerImpl;
 import com.mitchellbosecke.pebble.lexer.Syntax;
 import com.mitchellbosecke.pebble.lexer.TokenStream;
@@ -39,13 +35,13 @@ import com.mitchellbosecke.pebble.parser.ParserOptions;
 import com.mitchellbosecke.pebble.template.EvaluationOptions;
 import com.mitchellbosecke.pebble.template.PebbleTemplate;
 import com.mitchellbosecke.pebble.template.PebbleTemplateImpl;
-
 import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +63,8 @@ public class PebbleEngine {
   private final boolean strictVariables;
 
   private final Locale defaultLocale;
+
+  private final int maxRenderedSize;
 
   private final PebbleCache<CacheKey, Object> tagCache;
 
@@ -91,6 +89,7 @@ public class PebbleEngine {
       Syntax syntax,
       boolean strictVariables,
       Locale defaultLocale,
+      int maxRenderedSize,
       PebbleCache<CacheKey, Object> tagCache,
       PebbleCache<Object, PebbleTemplate> templateCache,
       ExecutorService executorService,
@@ -102,6 +101,7 @@ public class PebbleEngine {
     this.syntax = syntax;
     this.strictVariables = strictVariables;
     this.defaultLocale = defaultLocale;
+    this.maxRenderedSize = maxRenderedSize;
     this.tagCache = tagCache;
     this.executorService = executorService;
     this.templateCache = templateCache;
@@ -155,16 +155,16 @@ public class PebbleEngine {
     Reader templateReader = loader.getReader(cacheKey);
     
     try {
-      logger.debug("Tokenizing template named {}", templateName);
+      this.logger.trace("Tokenizing template named {}", templateName);
       LexerImpl lexer = new LexerImpl(this.syntax,
           this.extensionRegistry.getUnaryOperators().values(),
           this.extensionRegistry.getBinaryOperators().values());
       TokenStream tokenStream = lexer.tokenize(templateReader, templateName);
-      logger.trace("TokenStream: {}", tokenStream);
+      this.logger.trace("TokenStream: {}", tokenStream);
       
       Parser parser = new ParserImpl(this.extensionRegistry.getUnaryOperators(),
           this.extensionRegistry.getBinaryOperators(), this.extensionRegistry.getTokenParsers(),
-          this.parserOptions);
+              this.parserOptions);
       RootNode root = parser.parse(tokenStream);
 
       PebbleTemplateImpl instance = new PebbleTemplateImpl(this, root, templateName);
@@ -221,6 +221,15 @@ public class PebbleEngine {
   }
 
   /**
+   * Returns the max rendered size.
+   *
+   *  @return The max rendered size.
+   */
+  public int getMaxRenderedSize() {
+    return this.maxRenderedSize;
+  }
+
+  /**
    * Returns the executor service
    *
    * @return The executor service
@@ -263,8 +272,6 @@ public class PebbleEngine {
 
     private Loader<?> loader;
 
-    private List<Extension> userProvidedExtensions = new ArrayList<>();
-
     private Syntax syntax;
 
     private boolean strictVariables = false;
@@ -272,6 +279,8 @@ public class PebbleEngine {
     private boolean enableNewLineTrimming = true;
 
     private Locale defaultLocale;
+
+    private int maxRenderedSize = -1;
 
     private ExecutorService executorService;
 
@@ -281,15 +290,15 @@ public class PebbleEngine {
 
     private PebbleCache<CacheKey, Object> tagCache;
 
-    private EscaperExtension escaperExtension = new EscaperExtension();
-
-    private boolean allowUnsafeMethods;
-
     private boolean literalDecimalTreatedAsInteger = false;
 
     private boolean greedyMatchMethod = false;
 
-    private boolean allowOverrideCoreOperators = false;
+    private boolean literalNumbersAsBigDecimals = false;
+
+    private MethodAccessValidator methodAccessValidator = new BlacklistMethodAccessValidator();
+
+    private final ExtensionRegistryFactory factory = new ExtensionRegistryFactory();
 
     /**
      * Creates the builder.
@@ -316,9 +325,7 @@ public class PebbleEngine {
      * @return This builder object
      */
     public Builder extension(Extension... extensions) {
-      for (Extension extension : extensions) {
-        this.userProvidedExtensions.add(extension);
-      }
+      this.factory.extension(extensions);
       return this;
     }
 
@@ -386,6 +393,19 @@ public class PebbleEngine {
     }
 
     /**
+     * Sets the maximum size of the rendered template to protect against macro bombs.
+     * See for example https://github.com/PebbleTemplates/pebble/issues/526.
+     * If the rendered template exceeds this limit, then a PebbleException is thrown.
+     * The default value is -1 and it means unlimited.
+     * @param maxRenderedSize The maximum allowed size of the rendered template.
+     * @return This builder object.
+     */
+    public Builder maxRenderedSize(int maxRenderedSize) {
+      this.maxRenderedSize = maxRenderedSize;
+      return this;
+    }
+
+    /**
      * Sets the executor service which is required if using one of Pebble's multithreading features
      * such as the "parallel" tag.
      *
@@ -426,7 +446,7 @@ public class PebbleEngine {
      * @return This builder object
      */
     public Builder autoEscaping(boolean autoEscaping) {
-      this.escaperExtension.setAutoEscaping(autoEscaping);
+      this.factory.autoEscaping(autoEscaping);
       return this;
     }
 
@@ -437,7 +457,7 @@ public class PebbleEngine {
      * @return This builder object
      */
     public Builder allowOverrideCoreOperators(boolean allowOverrideCoreOperators) {
-      this.allowOverrideCoreOperators = allowOverrideCoreOperators;
+      this.factory.allowOverrideCoreOperators(allowOverrideCoreOperators);
       return this;
     }
 
@@ -448,7 +468,7 @@ public class PebbleEngine {
      * @return This builder object
      */
     public Builder defaultEscapingStrategy(String strategy) {
-      this.escaperExtension.setDefaultStrategy(strategy);
+      this.factory.defaultEscapingStrategy(strategy);
       return this;
     }
 
@@ -460,7 +480,7 @@ public class PebbleEngine {
      * @return This builder object
      */
     public Builder addEscapingStrategy(String name, EscapingStrategy strategy) {
-      this.escaperExtension.addEscapingStrategy(name, strategy);
+      this.factory.addEscapingStrategy(name, strategy);
       return this;
     }
 
@@ -477,13 +497,13 @@ public class PebbleEngine {
     }
 
     /**
-     * Enable/disable unsafe methods access for attributes
+     * Validator that can be used to validate object/method access
      *
-     * @param allowUnsafeMethods toggle to enable/disable unsafe methods access
+     * @param methodAccessValidator Validator that can be used to validate object/method access
      * @return This builder object
      */
-    public Builder allowUnsafeMethods(boolean allowUnsafeMethods) {
-      this.allowUnsafeMethods = allowUnsafeMethods;
+    public Builder methodAccessValidator(MethodAccessValidator methodAccessValidator) {
+      this.methodAccessValidator = methodAccessValidator;
       return this;
     }
 
@@ -496,6 +516,18 @@ public class PebbleEngine {
      */
     public Builder literalDecimalTreatedAsInteger(boolean literalDecimalTreatedAsInteger) {
       this.literalDecimalTreatedAsInteger = literalDecimalTreatedAsInteger;
+      return this;
+    }
+
+    /**
+     * Enable/disable treat literal numbers as BigDecimals. Default is disabled, treated as Long/Double.
+     *
+     * @param literalNumbersAsBigDecimals toggle to enable/disable literal numbers treated as
+     * BigDecimals
+     * @return This builder object
+     */
+    public Builder literalNumbersAsBigDecimals(boolean literalNumbersAsBigDecimals) {
+      this.literalNumbersAsBigDecimals = literalNumbersAsBigDecimals;
       return this;
     }
 
@@ -526,13 +558,25 @@ public class PebbleEngine {
     }
 
     /**
+     * Registers an implementation of {@link ExtensionCustomizer} to change runtime-behaviour of standard
+     * functionality.
+     *
+     * @param customizer The customizer which wraps any non-user-provided extension
+     * @return This build object
+     */
+    public Builder registerExtensionCustomizer(Function<Extension, ExtensionCustomizer> customizer) {
+      this.factory.registerExtensionCustomizer(customizer);
+      return this;
+    }
+
+    /**
      * Creates the PebbleEngine instance.
      *
      * @return A PebbleEngine object that can be used to create PebbleTemplate objects.
      */
     public PebbleEngine build() {
 
-      ExtensionRegistry extensionRegistry = this.buildExtensionRegistry();
+      ExtensionRegistry extensionRegistry = this.factory.buildExtensionRegistry();
 
       // default loader
       if (this.loader == null) {
@@ -568,34 +612,13 @@ public class PebbleEngine {
 
       ParserOptions parserOptions = new ParserOptions();
       parserOptions.setLiteralDecimalTreatedAsInteger(this.literalDecimalTreatedAsInteger);
+      parserOptions.setLiteralNumbersAsBigDecimals(this.literalNumbersAsBigDecimals);
 
-      EvaluationOptions evaluationOptions = new EvaluationOptions();
-      evaluationOptions.setAllowUnsafeMethods(this.allowUnsafeMethods);
-      evaluationOptions.setGreedyMatchMethod(this.greedyMatchMethod);
-
-      return new PebbleEngine(this.loader, this.syntax, this.strictVariables, this.defaultLocale,
+      EvaluationOptions evaluationOptions = new EvaluationOptions(this.greedyMatchMethod,
+          this.methodAccessValidator);
+      return new PebbleEngine(this.loader, this.syntax, this.strictVariables, this.defaultLocale, this.maxRenderedSize,
           this.tagCache, this.templateCache,
           this.executorService, extensionRegistry, parserOptions, evaluationOptions);
-    }
-
-    private ExtensionRegistry buildExtensionRegistry() {
-      ExtensionRegistry extensionRegistry = new ExtensionRegistry();
-
-      extensionRegistry.addExtension(new CoreExtension());
-      extensionRegistry.addExtension(this.escaperExtension);
-      extensionRegistry.addExtension(new I18nExtension());
-
-      for (Extension userProvidedExtension : this.userProvidedExtensions) {
-        if (this.allowOverrideCoreOperators) {
-          extensionRegistry.addOperatorOverridingExtension(userProvidedExtension);
-        } else {
-          extensionRegistry.addExtension(userProvidedExtension);
-        }
-      }
-
-      extensionRegistry.addExtension(new AttributeResolverExtension());
-
-      return extensionRegistry;
     }
   }
 

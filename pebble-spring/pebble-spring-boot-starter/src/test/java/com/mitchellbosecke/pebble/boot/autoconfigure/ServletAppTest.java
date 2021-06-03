@@ -1,7 +1,13 @@
 package com.mitchellbosecke.pebble.boot.autoconfigure;
 
-import com.mitchellbosecke.pebble.boot.Application;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.mitchellbosecke.pebble.boot.Application;
+import java.util.Locale;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,14 +17,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-
-import java.util.Locale;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = Application.class, webEnvironment = WebEnvironment.RANDOM_PORT)
 class ServletAppTest {
@@ -72,4 +70,19 @@ class ServletAppTest {
         .andExpect(content().string("Hola Boot! Tested!"));
   }
 
+  @Test
+  void testBeansAccess() throws Exception {
+    this.mockMvc.perform(get("/beans.action"))
+        .andExpect(status().isOk())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+        .andExpect(content().string("beans:bar"));
+  }
+
+  @Test
+  void testResponseAccess() throws Exception {
+    this.mockMvc.perform(get("/response.action"))
+        .andExpect(status().isOk())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+        .andExpect(content().string("response:200"));
+  }
 }

@@ -1,4 +1,4 @@
-# Pebble ![Continuous Integration](https://api.travis-ci.org/PebbleTemplates/pebble.svg?branch=master)
+# Pebble ![Continuous Integration](https://api.travis-ci.com/PebbleTemplates/pebble.svg?branch=master)
 
 Pebble is a java templating engine inspired by [Twig](http://twig.sensiolabs.org/). It separates itself from the crowd with its inheritance feature and its easy-to-read syntax. It ships with built-in autoescaping for security, and it includes integrated support for internationalization.
 
@@ -18,7 +18,7 @@ Please note that the pebble's groupId has been updated as of version 2.5.0
 <dependency>
 	<groupId>io.pebbletemplates</groupId>
 	<artifactId>pebble</artifactId>
-	<version>3.1.2</version>
+	<version>3.1.5</version>
 </dependency>
 ```
 

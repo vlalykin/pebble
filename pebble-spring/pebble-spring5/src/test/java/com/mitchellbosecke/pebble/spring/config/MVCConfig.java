@@ -12,7 +12,6 @@ import com.mitchellbosecke.pebble.loader.Loader;
 import com.mitchellbosecke.pebble.spring.bean.SomeBean;
 import com.mitchellbosecke.pebble.spring.extension.SpringExtension;
 import com.mitchellbosecke.pebble.spring.servlet.PebbleViewResolver;
-
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -51,8 +50,8 @@ public class MVCConfig {
   }
 
   @Bean
-  public SpringExtension springExtension() {
-    return new SpringExtension();
+  public SpringExtension springExtension(MessageSource messageSource) {
+    return new SpringExtension(messageSource);
   }
 
   @Bean
@@ -62,10 +61,9 @@ public class MVCConfig {
 
   @Bean
   public ViewResolver viewResolver(PebbleEngine pebbleEngine) {
-    PebbleViewResolver viewResolver = new PebbleViewResolver();
+    PebbleViewResolver viewResolver = new PebbleViewResolver(pebbleEngine);
     viewResolver.setPrefix("com/mitchellbosecke/pebble/spring/template/");
     viewResolver.setSuffix(".html");
-    viewResolver.setPebbleEngine(pebbleEngine);
     viewResolver.setContentType("text/html");
     return viewResolver;
   }
